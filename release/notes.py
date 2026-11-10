@@ -27,6 +27,7 @@ marked with the target release. This script should be run after either
 resolving all issues or moving outstanding issues to a later release.
 """
 
+from html import escape
 from jira import JIRA
 import itertools, sys
 
@@ -118,11 +119,11 @@ def render(version, issues):
 """]
     for itype, issues in by_group:
         parts.append(f"<h2>{itype}</h2>")
-        parts.append("</ul>")
+        parts.append("<ul>")
         for issue in issues:
             link = issue_link(issue)
             key = issue.key
-            summary = issue.fields.summary
+            summary = escape(issue.fields.summary)
             parts.append(f"<li>[<a href=\"{link}\">{key}</a>] - {summary}</li>")
         parts.append("</ul>")
     return "\n".join(parts)
