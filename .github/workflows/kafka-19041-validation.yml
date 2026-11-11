@@ -14,7 +14,7 @@
 # KIND, either express or implied. See the License for the
 # specific language governing permissions and limitations
 # under the License.
-name: KAFKA-19041 artifact fixture validation
+name: KAFKA-19041 fork validation
 
 on:
   push:
@@ -25,7 +25,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: kafka-19041-fork-validation
+  group: refresh-collaborators
   cancel-in-progress: false
 
 jobs:
@@ -34,20 +34,38 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
       - run: python -m pip install -r committer-tools/requirements.txt
-      - name: Generate synthetic fixture (not live contributor results)
+      - name: Refresh collaborators
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          python -c 'import runpy; m = runpy.run_path("committer-tools/refresh_collaborators.py"); m["update_local_yaml_content"](".asf.yaml", ["fixture-only-not-a-real-recommendation"])'
-          echo 'SYNTHETIC FIXTURE ONLY. Do not apply to a real repository.' >> "$GITHUB_STEP_SUMMARY"
+          python -c 'import runpy; runpy.run_path("committer-tools/refresh_collaborators.py")["main"]()'
       - name: Prepare patch
         id: patch
         run: |
+          python - <<'PYTHON'
+          import subprocess
+          from pathlib import Path
+          from ruamel.yaml import YAML
+
+          yaml = YAML(typ="safe")
+          before = yaml.load(subprocess.check_output(["git", "show", "HEAD:.asf.yaml"], text=True))
+          after = yaml.load(Path(".asf.yaml").read_text())
+          collaborators = after["github"].pop("collaborators")
+          before["github"].pop("collaborators")
+          if not isinstance(collaborators, list) or not collaborators or not all(
+              isinstance(login, str) and login.strip() for login in collaborators
+          ):
+              raise ValueError("Refusing an empty or invalid collaborator list")
+          if before != after:
+              raise ValueError("Unexpected configuration changes outside collaborators")
+          PYTHON
           git diff --check
           if git diff --quiet -- .asf.yaml; then
             echo 'No collaborator changes.' >> "$GITHUB_STEP_SUMMARY"
@@ -61,7 +79,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: steps.patch.outputs.changed == 'true'
         with:
-          name: fixture-collaborators-patch
+          name: collaborators-patch
           path: collaborators.patch
           if-no-files-found: error
           retention-days: 30
