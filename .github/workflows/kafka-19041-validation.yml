@@ -14,7 +14,7 @@
 # KIND, either express or implied. See the License for the
 # specific language governing permissions and limitations
 # under the License.
-name: KAFKA-19041 fork validation
+name: KAFKA-19041 fork synthetic validation
 
 on:
   push:
@@ -41,11 +41,13 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -r committer-tools/requirements.txt
-      - name: Refresh collaborators
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+      - name: Synthetic collaborator fixture (not a real recommendation)
         run: |
-          python -c 'import runpy; runpy.run_path("committer-tools/refresh_collaborators.py")["main"]()'
+          python - <<'PYTHON'
+          import runpy
+          module = runpy.run_path("committer-tools/refresh_collaborators.py")
+          module["update_local_yaml_content"](".asf.yaml", ["fixture-z", "Fixture-a", "fixture-m"])
+          PYTHON
       - name: Prepare patch
         id: patch
         run: |
@@ -60,9 +62,12 @@ jobs:
           collaborators = after["github"].pop("collaborators")
           before["github"].pop("collaborators")
           if not isinstance(collaborators, list) or not collaborators or not all(
-              isinstance(login, str) and login.strip() for login in collaborators
+              isinstance(login, str) and login and login.isascii()
+              and not any(char.isspace() for char in login) for login in collaborators
           ):
               raise ValueError("Refusing an empty or invalid collaborator list")
+          if len({login.casefold() for login in collaborators}) != len(collaborators):
+              raise ValueError("Refusing duplicate collaborators")
           if before != after:
               raise ValueError("Unexpected configuration changes outside collaborators")
           PYTHON
@@ -73,13 +78,13 @@ jobs:
           else
             git diff -- .asf.yaml > collaborators.patch
             echo 'changed=true' >> "$GITHUB_OUTPUT"
-            echo 'A collaborator update patch is available as an artifact. A committer must review and apply it, then open a normal PR. No branch or repository settings were changed.' >> "$GITHUB_STEP_SUMMARY"
+            echo 'SYNTHETIC TEST DATA ONLY. Do not apply this fixture as a real collaborator recommendation.' >> "$GITHUB_STEP_SUMMARY"
             git rev-parse HEAD >> "$GITHUB_STEP_SUMMARY"
           fi
       - uses: actions/upload-artifact@v4
         if: steps.patch.outputs.changed == 'true'
         with:
-          name: collaborators-patch
+          name: fixture-collaborators-patch
           path: collaborators.patch
           if-no-files-found: error
           retention-days: 30
