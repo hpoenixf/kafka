@@ -1,0 +1,68 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements. See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership. The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License. You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied. See the License for the
+# specific language governing permissions and limitations
+# under the License.
+name: KAFKA-19041 fork validation
+
+on:
+  push:
+    branches: [test/kafka-19041-readonly-20261111]
+    paths: [.github/workflows/kafka-19041-validation.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kafka-19041-fork-validation
+  cancel-in-progress: false
+
+jobs:
+  generate-patch:
+    if: github.repository == 'hpoenixf/kafka'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r committer-tools/requirements.txt
+      - name: Refresh collaborators
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python -c 'import runpy; runpy.run_path("committer-tools/refresh_collaborators.py")["main"]()'
+      - name: Prepare patch
+        id: patch
+        run: |
+          git diff --check
+          if git diff --quiet -- .asf.yaml; then
+            echo 'No collaborator changes.' >> "$GITHUB_STEP_SUMMARY"
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+          else
+            git diff -- .asf.yaml > collaborators.patch
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+            echo 'A collaborator update patch is available as an artifact. A committer must review and apply it, then open a normal PR. No branch or repository settings were changed.' >> "$GITHUB_STEP_SUMMARY"
+            git rev-parse HEAD >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: steps.patch.outputs.changed == 'true'
+        with:
+          name: collaborators-patch
+          path: collaborators.patch
+          if-no-files-found: error
+          retention-days: 30
